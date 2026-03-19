@@ -1,0 +1,19 @@
+{
+  "active_campaigns": [
+    {
+      "id": "akhil-copilot-free-forever",
+      "type": "promo",
+      "priority": 1,
+      "title": "Akhil Copilot Pro",
+      "message": "Made by Akhil • Completely Free. No catches, just pure utility.",
+      "cta_text": "Use AkhilCopilot Free",
+      "url": "",
+      "icon": "sparkles",
+      "targeting": {
+        "os": "all",
+        "requires_premium": false
+      },
+      "expires_at": "2099-12-31T23:59:59Z"
+    }
+  ]
+}
