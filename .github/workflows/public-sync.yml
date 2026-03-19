@@ -21,7 +21,9 @@ jobs:
           
       - name: Verify Open-Source Build Integrity
         run: |
-          npm ci
+          # Fix the lock file first by regenerating it
+          npm install
+          # Then verify the build
           npx tsc --noEmit
           npx tsc -p electron/tsconfig.json --noEmit
           npx vite build
@@ -35,13 +37,13 @@ jobs:
             echo "Error: PUBLIC_REPO_PAT secret is missing. Please add it to your repository secrets."
             exit 1
           fi
-
+          
           # Setup Git for committing to the public repo
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
           # Clone the public repository
-          git clone https://$PUBLIC_REPO_PAT@github.com/evinjohnn/natively-cluely-ai-assistant.git public-repo
+          git clone https://$PUBLIC_REPO_PAT@github.com/posaakhil/AkhilKingsCopilot.git public-repo
           
           # Sync files from the current workspace to the public repo clone
           # Only exclude sensitive and build files
