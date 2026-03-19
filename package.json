@@ -1,8 +1,8 @@
 {
-  "name": "natively",
+  "name": "akhil-copilot",
   "version": "2.0.6",
   "main": "./dist-electron/electron/main.js",
-  "description": "Natively is a meeting notes app that uses AI to generate notes from your meetings.",
+  "description": "akhil-copilot is a meeting notes app that uses AI to generate notes from your meetings.",
   "scripts": {
     "clean": "rimraf dist dist-electron",
     "dev": "vite",
@@ -121,8 +121,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "evinjohnn",
-        "repo": "natively-cluely-ai-assistant",
+        "owner": "posaakhil",
+        "repo": "AkhilKingsCopilot",
         "releaseType": "release"
       }
     ]
