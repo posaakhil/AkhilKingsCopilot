@@ -1,0 +1,107 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory
+coverage
+*.lcov
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+dist-electron/
+dist/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# Build outputs
+release/
+/release
+.release
+dist/
+dist-electron/
+build/Release
+
+# Rust build artifacts
+native-module/target/
+native-module/*.node
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.cursorrules
+.windsurfrules
+.vscode/
+.idea/
+
+# Temporary files
+tmp
+*.tmp
+*.temp
+*.pid
+*.seed
+*.pid.lock
+
+# Parcel cache
+.cache
+.parcel-cache
+
+# Next.js build
+.next
+out
+
+# Nuxt build
+.nuxt
+
+# Specific project files
+demo.mp4
+change.md
+evinresume.pdf
+TPA Campus JD - SalesCode.pdf
+.github/RepoGuide.md
+
+# Old files backup
+old files
+
+# Electron publisher
+release/
+
+# Generated Proto files
+native-audio-service/Protos/
+native-audio-service/Sources/CopilotAudioService/Protos/
+
+# BUT keep the compiled native module (CRITICAL for app to work!)
+!node_modules/better-sqlite3/build/Release/better_sqlite3.node
+!native-module/*.node
+!build/Release/*.node
