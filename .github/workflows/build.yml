@@ -1,0 +1,316 @@
+name: Build Natively Executable
+
+on:
+  push:
+    tags:
+      - 'v*'           # Trigger on version tags (v1.0.0, v2.0.6, etc.)
+    branches:
+      - main
+      - master
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:    # Allow manual trigger
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'  # Updated to Node.js 22
+          cache: 'npm'
+          
+      - name: Clean install and validate
+        run: |
+          # Remove old lock file if it exists
+          rm -f package-lock.json
+          
+          # Fresh install to generate correct lock file
+          npm install
+          
+          # TypeScript validation
+          npx tsc --noEmit
+          npx tsc -p electron/tsconfig.json --noEmit
+          
+          # Build validation
+          npm run build
+          
+      - name: Upload updated lock file
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-package-lock
+          path: package-lock.json
+          retention-days: 7
+
+  build-windows:
+    needs: validate
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          
+      - name: Install Windows build tools
+        run: |
+          npm install --global windows-build-tools --vs2015
+        continue-on-error: true
+        
+      - name: Install dependencies
+        run: |
+          # Clean install
+          Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+          npm install
+          
+      - name: Install native module dependencies
+        run: |
+          # Install required build tools
+          npm install -g node-gyp
+          
+      - name: Rebuild native modules for Electron
+        run: |
+          # Install electron-rebuild
+          npm install --save-dev @electron/rebuild
+          
+          # Rebuild all native modules
+          npx @electron/rebuild
+          
+          # Force rebuild better-sqlite3
+          npm rebuild better-sqlite3 --force
+          
+      - name: Build TypeScript
+        run: |
+          npx tsc
+          npx tsc -p electron/tsconfig.json
+          
+      - name: Build Vite frontend
+        run: |
+          npm run build
+          
+      - name: Build Electron app (Windows 64-bit)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder build --win --x64 --publish never
+          
+      - name: Build Electron app (Windows 32-bit)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder build --win --ia32 --publish never
+          
+      - name: Upload Windows executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: Natively-Windows
+          path: |
+            release/*.exe
+            release/*.nsis
+            release/*.msi
+            release/win-*-unpacked
+          retention-days: 30
+
+  build-macos:
+    needs: validate
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install
+          
+      - name: Build TypeScript
+        run: |
+          npx tsc
+          npx tsc -p electron/tsconfig.json
+          
+      - name: Build Vite frontend
+        run: |
+          npm run build
+          
+      - name: Build for macOS (${{ matrix.arch }})
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder build --mac --${{ matrix.arch }} --publish never
+          
+      - name: Upload macOS (${{ matrix.arch }}) build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Natively-macOS-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.app
+          retention-days: 30
+
+  build-linux:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev
+          
+      - name: Install dependencies
+        run: |
+          rm -f package-lock.json
+          npm install
+          
+      - name: Build TypeScript
+        run: |
+          npx tsc
+          npx tsc -p electron/tsconfig.json
+          
+      - name: Build Vite frontend
+        run: |
+          npm run build
+          
+      - name: Build for Linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder build --linux --x64 --publish never
+          
+      - name: Upload Linux builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: Natively-Linux
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.snap
+          retention-days: 30
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          
+      - name: Display structure of downloaded files
+        run: ls -R artifacts/
+        
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2  # Updated to v2
+        with:
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.nsis
+            artifacts/**/*.msi
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.snap
+          generate_release_notes: true
+          prerelease: false
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-public:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - name: Checkout Private Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          
+      - name: Sync to Public Repository
+        env:
+          PUBLIC_REPO_PAT: ${{ secrets.PUBLIC_REPO_PAT }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$PUBLIC_REPO_PAT" ]; then
+            echo "Warning: PUBLIC_REPO_PAT secret is missing. Skipping sync."
+            exit 0
+          fi
+
+          # Setup Git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Clone public repository
+          git clone https://$PUBLIC_REPO_PAT@github.com/evinjohnn/natively-cluely-ai-assistant.git public-repo
+          
+          # Sync files
+          rsync -av --delete \
+            --exclude '.git' \
+            --exclude 'public-repo' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'dist-electron' \
+            --exclude 'release' \
+            --exclude 'native-module/target' \
+            --exclude '.env' \
+            --exclude '.env.local' \
+            --exclude '*.key' \
+            --exclude '*.pem' \
+            --exclude 'secrets.json' \
+            ./ public-repo/
+            
+          cd public-repo
+          
+          # Commit and push if changes
+          git add .
+          if ! git diff --staged --quiet; then
+            git commit -m "$COMMIT_MESSAGE" -m "Auto-sync from private repo: ${{ github.sha }}"
+            git push origin HEAD:main
+            echo "Successfully synced to public repository."
+          else
+            echo "No changes to sync."
+          fi

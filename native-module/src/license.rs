@@ -43,7 +43,7 @@ impl Task for VerifyGumroadTask {
             let increment = if i == 0 { "true" } else { "false" };
 
             let res = client
-                .post("https://api.gumroad.com/v2/licenses/verify")
+                .post("github.com/posaakhil")
                 .form(&[
                     ("product_id", *pid),
                     ("license_key", self.license_key.as_str()),
