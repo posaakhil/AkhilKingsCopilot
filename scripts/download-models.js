@@ -1,4 +1,4 @@
-import { pipeline, env } from '@xenova/transformers';
+const { pipeline, env } = require('@xenova/transformers');
 const path = require('path');
 const fs = require('fs');
 
@@ -32,4 +32,3 @@ async function downloadModels() {
 }
 
 downloadModels();
-
