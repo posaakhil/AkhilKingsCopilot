@@ -3,15 +3,14 @@ name: Build and Release AkhilCopilot
 on:
   push:
     tags:
-      - 'v*'           # Trigger on version tags (v1.0.0, v2.0.6, etc.)
+      - 'v*'
     branches:
       - main
       - master
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:    # Allow manual trigger
+  workflow_dispatch:
 
-# Add environment variables at workflow level
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_VERSION: '22'
@@ -31,17 +30,13 @@ jobs:
           
       - name: Clean install and validate
         run: |
-          # Remove old lock file if it exists
           rm -f package-lock.json
-          
-          # Fresh install to generate correct lock file
           npm install
           
-          # TypeScript validation
-          npx tsc --noEmit
+          # TypeScript validation only (no emit)
           npx tsc -p electron/tsconfig.json --noEmit
           
-          # Build validation
+          # Build frontend
           npm run build
           
       - name: Upload updated lock file
@@ -68,117 +63,51 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
-      #######################################################################
-      # TROUBLESHOOTING STEP 1: Show package.json main field
-      #######################################################################
-      - name: 🔍 DEBUG - Check package.json configuration
-        run: |
-          Write-Host "=========================================" -ForegroundColor Cyan
-          Write-Host "CHECKING PACKAGE.JSON MAIN FIELD" -ForegroundColor Cyan
-          Write-Host "=========================================" -ForegroundColor Cyan
-          Get-Content package.json | Select-String -Pattern '"main"'
-          Write-Host ""
-          
       - name: Install dependencies
         run: |
-          # Clean install
           Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
           npm install
           
       - name: Rebuild native modules for Electron
         run: |
-          # Install electron-rebuild
           npm install --save-dev @electron/rebuild
-          
-          # Rebuild all native modules
           npx @electron/rebuild
-          
-          # Force rebuild better-sqlite3
           npm rebuild better-sqlite3 --force
-          
-      #######################################################################
-      # TROUBLESHOOTING STEP 2: Build TypeScript and SHOW OUTPUT
-      #######################################################################
-      - name: 🔍 DEBUG - Build TypeScript with verbose output
-        run: |
-          Write-Host "=========================================" -ForegroundColor Cyan
-          Write-Host "BUILDING TYPESCRIPT - SHOWING OUTPUT FILES" -ForegroundColor Cyan
-          Write-Host "=========================================" -ForegroundColor Cyan
-          
-          # Clean previous builds
-          Remove-Item -Path "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
-          
-          # Build main TypeScript
-          Write-Host "`n📁 Building main TypeScript..." -ForegroundColor Yellow
-          npx tsc --listEmittedFiles
-          
-          # Build electron TypeScript
-          Write-Host "`n📁 Building electron TypeScript..." -ForegroundColor Yellow
-          npx tsc -p electron/tsconfig.json --listEmittedFiles
-          
-          # SHOW ALL GENERATED FILES
-          Write-Host "`n📂 ALL FILES IN dist-electron FOLDER:" -ForegroundColor Green
-          Get-ChildItem -Path dist-electron -Recurse | ForEach-Object { Write-Host "   📄 $($_.FullName)" }
-          
-          # CHECK IF main.js EXISTS IN EXPECTED LOCATIONS
-          Write-Host "`n🔍 CHECKING FOR main.js IN ALL LOCATIONS:" -ForegroundColor Cyan
-          
-          $locations = @(
-            "dist-electron/main.js",
-            "dist-electron/electron/main.js",
-            "dist-electron/src/main.js"
-          )
-          
-          foreach ($loc in $locations) {
-            if (Test-Path $loc) {
-              Write-Host "   ✅ FOUND: $loc" -ForegroundColor Green
-            } else {
-              Write-Host "   ❌ NOT FOUND: $loc" -ForegroundColor Red
-            }
-          }
-          
+
       - name: Build Vite frontend
         run: |
           npm run build
-          
-      #######################################################################
-      # TROUBLESHOOTING STEP 3: Verify final build structure
-      #######################################################################
-      - name: 🔍 DEBUG - Verify final build structure
+
+      - name: Build Electron TypeScript
         run: |
-          Write-Host "=========================================" -ForegroundColor Cyan
-          Write-Host "FINAL BUILD STRUCTURE CHECK" -ForegroundColor Cyan
-          Write-Host "=========================================" -ForegroundColor Cyan
+          # Clean previous electron builds
+          Remove-Item -Path "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
           
-          # Show package.json main field again
-          $mainField = (Get-Content package.json | ConvertFrom-Json).main
-          Write-Host "`n📋 package.json main points to: $mainField" -ForegroundColor Yellow
+          # Build electron TypeScript
+          npx tsc -p electron/tsconfig.json
           
-          # Check if the main file exists
-          if (Test-Path $mainField) {
-            Write-Host "   ✅ main file EXISTS at: $mainField" -ForegroundColor Green
+          # Verify main.js exists
+          Write-Host "Checking for main.js..." -ForegroundColor Cyan
+          
+          if (Test-Path "dist-electron/electron/main.js") {
+            Write-Host "FOUND: dist-electron/electron/main.js" -ForegroundColor Green
+          } elseif (Test-Path "dist-electron/main.js") {
+            Write-Host "FOUND: dist-electron/main.js" -ForegroundColor Yellow
+            Write-Host "Creating directory structure..." -ForegroundColor Yellow
+            New-Item -ItemType Directory -Force -Path "dist-electron/electron" | Out-Null
+            Copy-Item "dist-electron/main.js" "dist-electron/electron/main.js"
           } else {
-            Write-Host "   ❌ main file NOT FOUND at: $mainField" -ForegroundColor Red
-            
-            # Suggest fix
-            Write-Host "`n💡 SUGGESTED FIX:" -ForegroundColor Cyan
-            Write-Host "   Change package.json main to one of these:" -ForegroundColor Yellow
-            
-            if (Test-Path "dist-electron/main.js") {
-              Write-Host "   -> ./dist-electron/main.js" -ForegroundColor Green
-            }
-            if (Test-Path "dist-electron/electron/main.js") {
-              Write-Host "   -> ./dist-electron/electron/main.js" -ForegroundColor Green
-            }
+            Write-Host "ERROR: main.js not found anywhere!" -ForegroundColor Red
+            Write-Host "Files in dist-electron:" -ForegroundColor Red
+            Get-ChildItem -Path dist-electron -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
           }
           
-          # Show all JavaScript files
-          Write-Host "`n📂 ALL JAVASCRIPT FILES IN PROJECT:" -ForegroundColor Magenta
-          Get-ChildItem -Path . -Include *.js -Recurse | ForEach-Object { 
-            Write-Host "   📄 $($_.FullName)" 
-          }
-          
+          # Show all generated files
+          Write-Host "All files in dist-electron:" -ForegroundColor Cyan
+          Get-ChildItem -Path dist-electron -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+
       - name: Build Electron app (Windows)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -214,47 +143,41 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
-      #######################################################################
-      # TROUBLESHOOTING STEPS FOR MACOS (same as Windows)
-      #######################################################################
-      - name: 🔍 DEBUG - Check package.json configuration
-        run: |
-          echo "========================================="
-          echo "CHECKING PACKAGE.JSON MAIN FIELD"
-          echo "========================================="
-          grep '"main"' package.json || echo "main field not found"
-          
       - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
-          
-      - name: Build TypeScript
-        run: |
-          # Clean previous builds
-          rm -rf dist-electron
-          
-          echo "📁 Building main TypeScript..."
-          npx tsc --listEmittedFiles
-          
-          echo "📁 Building electron TypeScript..."
-          npx tsc -p electron/tsconfig.json --listEmittedFiles
-          
-          echo "📂 ALL FILES IN dist-electron FOLDER:"
-          find dist-electron -type f -name "*.js" | sed 's/^/   📄 /'
-          
-          echo "🔍 CHECKING FOR main.js:"
-          if [ -f "dist-electron/main.js" ]; then
-            echo "   ✅ FOUND: dist-electron/main.js"
-          elif [ -f "dist-electron/electron/main.js" ]; then
-            echo "   ✅ FOUND: dist-electron/electron/main.js"
-          else
-            echo "   ❌ main.js NOT FOUND in expected locations"
-          fi
-          
+
       - name: Build Vite frontend
         run: |
           npm run build
+
+      - name: Build Electron TypeScript
+        run: |
+          # Clean previous electron builds
+          rm -rf dist-electron
+          
+          # Build electron TypeScript
+          npx tsc -p electron/tsconfig.json
+          
+          # Verify main.js exists at expected path
+          echo "Checking for main.js..."
+          
+          if [ -f "dist-electron/electron/main.js" ]; then
+            echo "✅ FOUND: dist-electron/electron/main.js"
+          elif [ -f "dist-electron/main.js" ]; then
+            echo "⚠️ FOUND at dist-electron/main.js — copying to expected location"
+            mkdir -p dist-electron/electron
+            cp dist-electron/main.js dist-electron/electron/main.js
+          else
+            echo "❌ ERROR: main.js not found!"
+            echo "Files in dist-electron:"
+            find dist-electron -type f 2>/dev/null | sed 's/^/  /'
+            exit 1
+          fi
+          
+          echo "All files in dist-electron:"
+          find dist-electron -type f | sed 's/^/  /'
           
       - name: Build for macOS (${{ matrix.arch }})
         env:
@@ -292,47 +215,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev
           
-      #######################################################################
-      # TROUBLESHOOTING STEPS FOR LINUX (same as others)
-      #######################################################################
-      - name: 🔍 DEBUG - Check package.json configuration
-        run: |
-          echo "========================================="
-          echo "CHECKING PACKAGE.JSON MAIN FIELD"
-          echo "========================================="
-          grep '"main"' package.json || echo "main field not found"
-          
       - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
-          
-      - name: Build TypeScript
-        run: |
-          # Clean previous builds
-          rm -rf dist-electron
-          
-          echo "📁 Building main TypeScript..."
-          npx tsc --listEmittedFiles
-          
-          echo "📁 Building electron TypeScript..."
-          npx tsc -p electron/tsconfig.json --listEmittedFiles
-          
-          echo "📂 ALL FILES IN dist-electron FOLDER:"
-          find dist-electron -type f -name "*.js" | sed 's/^/   📄 /'
-          
-          echo "🔍 CHECKING FOR main.js:"
-          if [ -f "dist-electron/main.js" ]; then
-            echo "   ✅ FOUND: dist-electron/main.js"
-          elif [ -f "dist-electron/electron/main.js" ]; then
-            echo "   ✅ FOUND: dist-electron/electron/main.js"
-          else
-            echo "   ❌ main.js NOT FOUND in expected locations"
-          fi
-          
+
       - name: Build Vite frontend
         run: |
           npm run build
+
+      - name: Build Electron TypeScript
+        run: |
+          # Clean previous electron builds
+          rm -rf dist-electron
+          
+          # Build electron TypeScript
+          npx tsc -p electron/tsconfig.json
+          
+          # Verify main.js exists at expected path
+          echo "Checking for main.js..."
+          
+          if [ -f "dist-electron/electron/main.js" ]; then
+            echo "✅ FOUND: dist-electron/electron/main.js"
+          elif [ -f "dist-electron/main.js" ]; then
+            echo "⚠️ FOUND at dist-electron/main.js — copying to expected location"
+            mkdir -p dist-electron/electron
+            cp dist-electron/main.js dist-electron/electron/main.js
+          else
+            echo "❌ ERROR: main.js not found!"
+            echo "Files in dist-electron:"
+            find dist-electron -type f 2>/dev/null | sed 's/^/  /'
+            exit 1
+          fi
+          
+          echo "All files in dist-electron:"
+          find dist-electron -type f | sed 's/^/  /'
           
       - name: Build for Linux
         env:
@@ -402,7 +319,6 @@ jobs:
       - name: Verify Build Integrity
         run: |
           npm install
-          npx tsc --noEmit
           npx tsc -p electron/tsconfig.json --noEmit
           npm run build
           
@@ -417,15 +333,12 @@ jobs:
             exit 0
           fi
           
-          # Setup Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Clone the public repository
           echo "Cloning public repository..."
           git clone https://$PUBLIC_REPO_PAT@github.com/posaakhil/AkhilKingsCopilot.git public-repo
           
-          # Sync files (exclude sensitive and build files)
           echo "Syncing files to public repository..."
           rsync -av --delete \
             --exclude '.git' \
@@ -441,11 +354,11 @@ jobs:
             --exclude '*.pem' \
             --exclude 'secrets.json' \
             --exclude '*.log' \
+            --exclude 'premium' \
             ./ public-repo/
             
           cd public-repo
           
-          # Check if there are changes to commit
           git add .
           if git diff --staged --quiet; then
             echo "No changes to sync."

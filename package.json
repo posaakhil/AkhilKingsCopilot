@@ -7,6 +7,8 @@
     "clean": "rimraf dist dist-electron",
     "dev": "vite",
     "build": "npm run clean && tsc && vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:all": "npm run clean && tsc -p electron/tsconfig.json && vite build",
     "preview": "vite preview",
     "postinstall": "cross-env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm rebuild sharp && node scripts/download-models.js && node scripts/ensure-sqlite-vec.js",
     "electron:dev": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
@@ -29,7 +31,8 @@
       "node_modules",
       "!**/native-module/target",
       "!**/native-module/src",
-      "!**/native-module/.cargo"
+      "!**/native-module/.cargo",
+      "!**/premium/**"
     ],
     "asarUnpack": [
       "**/*.node",
