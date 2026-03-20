@@ -8,7 +8,7 @@ on:
       - main
       - master
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 env:
@@ -21,25 +21,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
-      - name: Clean install and validate
+
+      - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
-          
-          # TypeScript validation only (no emit)
+
+      - name: Validate TypeScript (no emit)
+        run: |
           npx tsc -p electron/tsconfig.json --noEmit
-          
-          # Build frontend
           npm run build
-          
-      - name: Upload updated lock file
+
+      - name: Upload lock file
         uses: actions/upload-artifact@v4
         with:
           name: updated-package-lock
@@ -50,71 +49,54 @@ jobs:
     needs: validate
     runs-on: windows-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
+
       - name: Install dependencies
         run: |
           Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
           npm install
-          
-      - name: Rebuild native modules for Electron
+
+      - name: Rebuild native modules
         run: |
           npm install --save-dev @electron/rebuild
           npx @electron/rebuild
           npm rebuild better-sqlite3 --force
 
       - name: Build Vite frontend
-        run: |
-          npm run build
+        run: npm run build
 
       - name: Build Electron TypeScript
         run: |
-          # Clean previous electron builds
           Remove-Item -Path "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
-          
-          # Build electron TypeScript
           npx tsc -p electron/tsconfig.json
           
-          # Verify main.js exists
-          Write-Host "Checking for main.js..." -ForegroundColor Cyan
-          
+          # Verify output
           if (Test-Path "dist-electron/electron/main.js") {
-            Write-Host "FOUND: dist-electron/electron/main.js" -ForegroundColor Green
-          } elseif (Test-Path "dist-electron/main.js") {
-            Write-Host "FOUND: dist-electron/main.js" -ForegroundColor Yellow
-            Write-Host "Creating directory structure..." -ForegroundColor Yellow
-            New-Item -ItemType Directory -Force -Path "dist-electron/electron" | Out-Null
-            Copy-Item "dist-electron/main.js" "dist-electron/electron/main.js"
+            Write-Host "✅ SUCCESS: dist-electron/electron/main.js exists" -ForegroundColor Green
           } else {
-            Write-Host "ERROR: main.js not found anywhere!" -ForegroundColor Red
-            Write-Host "Files in dist-electron:" -ForegroundColor Red
-            Get-ChildItem -Path dist-electron -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+            Write-Host "❌ ERROR: Expected file not found!" -ForegroundColor Red
+            Write-Host "Files in dist-electron:" -ForegroundColor Yellow
+            Get-ChildItem -Path dist-electron -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
             exit 1
           }
-          
-          # Show all generated files
-          Write-Host "All files in dist-electron:" -ForegroundColor Cyan
-          Get-ChildItem -Path dist-electron -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
 
       - name: Build Electron app (Windows)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx electron-builder build --win --x64 --publish never
-          
-      - name: Upload Windows executables
+        run: npx electron-builder build --win --x64 --publish never
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: AkhilCopilot-Windows
@@ -132,60 +114,44 @@ jobs:
     strategy:
       matrix:
         arch: [x64, arm64]
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
+
       - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
 
       - name: Build Vite frontend
-        run: |
-          npm run build
+        run: npm run build
 
       - name: Build Electron TypeScript
         run: |
-          # Clean previous electron builds
           rm -rf dist-electron
-          
-          # Build electron TypeScript
           npx tsc -p electron/tsconfig.json
           
-          # Verify main.js exists at expected path
-          echo "Checking for main.js..."
-          
           if [ -f "dist-electron/electron/main.js" ]; then
-            echo "✅ FOUND: dist-electron/electron/main.js"
-          elif [ -f "dist-electron/main.js" ]; then
-            echo "⚠️ FOUND at dist-electron/main.js — copying to expected location"
-            mkdir -p dist-electron/electron
-            cp dist-electron/main.js dist-electron/electron/main.js
+            echo "✅ SUCCESS: dist-electron/electron/main.js exists"
           else
-            echo "❌ ERROR: main.js not found!"
+            echo "❌ ERROR: Expected file not found!"
             echo "Files in dist-electron:"
             find dist-electron -type f 2>/dev/null | sed 's/^/  /'
             exit 1
           fi
-          
-          echo "All files in dist-electron:"
-          find dist-electron -type f | sed 's/^/  /'
-          
+
       - name: Build for macOS (${{ matrix.arch }})
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx electron-builder build --mac --${{ matrix.arch }} --publish never
-          
-      - name: Upload macOS (${{ matrix.arch }}) build
+        run: npx electron-builder build --mac --${{ matrix.arch }} --publish never
+
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: AkhilCopilot-macOS-${{ matrix.arch }}
@@ -199,65 +165,49 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbfile-dev libsecret-1-dev
-          
+
       - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
 
       - name: Build Vite frontend
-        run: |
-          npm run build
+        run: npm run build
 
       - name: Build Electron TypeScript
         run: |
-          # Clean previous electron builds
           rm -rf dist-electron
-          
-          # Build electron TypeScript
           npx tsc -p electron/tsconfig.json
           
-          # Verify main.js exists at expected path
-          echo "Checking for main.js..."
-          
           if [ -f "dist-electron/electron/main.js" ]; then
-            echo "✅ FOUND: dist-electron/electron/main.js"
-          elif [ -f "dist-electron/main.js" ]; then
-            echo "⚠️ FOUND at dist-electron/main.js — copying to expected location"
-            mkdir -p dist-electron/electron
-            cp dist-electron/main.js dist-electron/electron/main.js
+            echo "✅ SUCCESS: dist-electron/electron/main.js exists"
           else
-            echo "❌ ERROR: main.js not found!"
+            echo "❌ ERROR: Expected file not found!"
             echo "Files in dist-electron:"
             find dist-electron -type f 2>/dev/null | sed 's/^/  /'
             exit 1
           fi
-          
-          echo "All files in dist-electron:"
-          find dist-electron -type f | sed 's/^/  /'
-          
+
       - name: Build for Linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx electron-builder build --linux --x64 --publish never
-          
-      - name: Upload Linux builds
+        run: npx electron-builder build --linux --x64 --publish never
+
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: AkhilCopilot-Linux
@@ -272,17 +222,13 @@ jobs:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-          
-      - name: Display structure of downloaded files
-        run: ls -R artifacts/
-        
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -306,40 +252,35 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
     steps:
       - name: Checkout Private Repository
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Verify Build Integrity
         run: |
           npm install
           npx tsc -p electron/tsconfig.json --noEmit
           npm run build
-          
+
       - name: Sync to Public Repository
         env:
           PUBLIC_REPO_PAT: ${{ secrets.PUBLIC_REPO_PAT }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           if [ -z "$PUBLIC_REPO_PAT" ]; then
-            echo "⚠️ Warning: PUBLIC_REPO_PAT secret is missing. Skipping sync to public repo."
-            echo "To enable sync, add your GitHub Personal Access Token as a repository secret named PUBLIC_REPO_PAT"
+            echo "⚠️ Warning: PUBLIC_REPO_PAT secret missing. Skipping sync."
             exit 0
           fi
-          
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
           echo "Cloning public repository..."
           git clone https://$PUBLIC_REPO_PAT@github.com/posaakhil/AkhilKingsCopilot.git public-repo
-          
-          echo "Syncing files to public repository..."
+          echo "Syncing files..."
           rsync -av --delete \
             --exclude '.git' \
             --exclude 'public-repo' \
@@ -356,14 +297,12 @@ jobs:
             --exclude '*.log' \
             --exclude 'premium' \
             ./ public-repo/
-            
           cd public-repo
-          
           git add .
           if git diff --staged --quiet; then
             echo "No changes to sync."
           else
             git commit -m "$COMMIT_MESSAGE" -m "Auto-sync from private repo: ${{ github.sha }}"
             git push origin HEAD:main
-            echo "✅ Successfully synced to public repository!"
+            echo "✅ Successfully synced!"
           fi
