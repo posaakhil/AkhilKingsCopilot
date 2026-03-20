@@ -1718,7 +1718,7 @@ export class AppState {
   private _applyDisguise(
     mode: "terminal" | "settings" | "activity" | "none",
   ): void {
-    let appName = "Natively";
+    let appName = "AkhilCopilot";
     let iconPath = "";
 
     const isWin = process.platform === "win32";
@@ -1780,7 +1780,7 @@ export class AppState {
         }
         break;
       case "none":
-        appName = "Natively";
+        appName = "AkhilCopilot";
         if (isMac) {
           iconPath = app.isPackaged
             ? path.join(process.resourcesPath, "natively.icns")

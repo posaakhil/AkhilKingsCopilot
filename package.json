@@ -21,7 +21,7 @@
   "build": {
     "appId": "com.electron.meeting-notes",
     "afterPack": "./scripts/ad-hoc-sign.js",
-    "productName": "Natively",
+    "productName": "AkhilCopilot",
     "files": [
       "dist",
       "dist-electron",

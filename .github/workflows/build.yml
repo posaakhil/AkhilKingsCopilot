@@ -1,4 +1,4 @@
-name: Build Natively Executable
+name: Build and Release AkhilCopilot
 
 on:
   push:
@@ -11,6 +11,11 @@ on:
     branches: [ main, master ]
   workflow_dispatch:    # Allow manual trigger
 
+# Add environment variables at workflow level
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: '22'
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -21,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'  # Updated to Node.js 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
       - name: Clean install and validate
@@ -60,25 +65,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
-      - name: Install Windows build tools
-        run: |
-          npm install --global windows-build-tools --vs2015
-        continue-on-error: true
-        
       - name: Install dependencies
         run: |
           # Clean install
           Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
           npm install
-          
-      - name: Install native module dependencies
-        run: |
-          # Install required build tools
-          npm install -g node-gyp
           
       - name: Rebuild native modules for Electron
         run: |
@@ -100,22 +95,16 @@ jobs:
         run: |
           npm run build
           
-      - name: Build Electron app (Windows 64-bit)
+      - name: Build Electron app (Windows)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npx electron-builder build --win --x64 --publish never
           
-      - name: Build Electron app (Windows 32-bit)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx electron-builder build --win --ia32 --publish never
-          
       - name: Upload Windows executables
         uses: actions/upload-artifact@v4
         with:
-          name: Natively-Windows
+          name: AkhilCopilot-Windows
           path: |
             release/*.exe
             release/*.nsis
@@ -138,7 +127,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
       - name: Install dependencies
@@ -164,7 +153,7 @@ jobs:
       - name: Upload macOS (${{ matrix.arch }}) build
         uses: actions/upload-artifact@v4
         with:
-          name: Natively-macOS-${{ matrix.arch }}
+          name: AkhilCopilot-macOS-${{ matrix.arch }}
           path: |
             release/*.dmg
             release/*.zip
@@ -183,7 +172,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
       - name: Install system dependencies
@@ -214,7 +203,7 @@ jobs:
       - name: Upload Linux builds
         uses: actions/upload-artifact@v4
         with:
-          name: Natively-Linux
+          name: AkhilCopilot-Linux
           path: |
             release/*.AppImage
             release/*.deb
@@ -238,7 +227,7 @@ jobs:
         run: ls -R artifacts/
         
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2  # Updated to v2
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/**/*.exe
@@ -256,10 +245,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  sync-public:
+  sync-to-public:
     needs: validate
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout Private Repository
@@ -268,7 +257,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Verify Build Integrity
+        run: |
+          npm install
+          npx tsc --noEmit
+          npx tsc -p electron/tsconfig.json --noEmit
+          npm run build
           
       - name: Sync to Public Repository
         env:
@@ -276,18 +272,21 @@ jobs:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           if [ -z "$PUBLIC_REPO_PAT" ]; then
-            echo "Warning: PUBLIC_REPO_PAT secret is missing. Skipping sync."
+            echo "⚠️ Warning: PUBLIC_REPO_PAT secret is missing. Skipping sync to public repo."
+            echo "To enable sync, add your GitHub Personal Access Token as a repository secret named PUBLIC_REPO_PAT"
             exit 0
           fi
-
+          
           # Setup Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Clone public repository
-          git clone https://$PUBLIC_REPO_PAT@github.com/evinjohnn/natively-cluely-ai-assistant.git public-repo
+          # Clone the public repository
+          echo "Cloning public repository..."
+          git clone https://$PUBLIC_REPO_PAT@github.com/posaakhil/AkhilKingsCopilot.git public-repo
           
-          # Sync files
+          # Sync files (exclude sensitive and build files)
+          echo "Syncing files to public repository..."
           rsync -av --delete \
             --exclude '.git' \
             --exclude 'public-repo' \
@@ -301,16 +300,17 @@ jobs:
             --exclude '*.key' \
             --exclude '*.pem' \
             --exclude 'secrets.json' \
+            --exclude '*.log' \
             ./ public-repo/
             
           cd public-repo
           
-          # Commit and push if changes
+          # Check if there are changes to commit
           git add .
-          if ! git diff --staged --quiet; then
+          if git diff --staged --quiet; then
+            echo "No changes to sync."
+          else
             git commit -m "$COMMIT_MESSAGE" -m "Auto-sync from private repo: ${{ github.sha }}"
             git push origin HEAD:main
-            echo "Successfully synced to public repository."
-          else
-            echo "No changes to sync."
+            echo "✅ Successfully synced to public repository!"
           fi
