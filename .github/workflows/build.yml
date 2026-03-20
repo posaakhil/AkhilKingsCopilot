@@ -16,6 +16,9 @@ env:
   NODE_VERSION: '22'
 
 jobs:
+  # ============================================================================
+  # VALIDATE: Type-check and build frontend (runs on Ubuntu for all PRs)
+  # ============================================================================
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -31,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           rm -f package-lock.json
-          npm install
+          npm ci
 
       - name: Validate TypeScript (no emit)
         run: |
@@ -45,6 +48,9 @@ jobs:
           path: package-lock.json
           retention-days: 7
 
+  # ============================================================================
+  # BUILD WINDOWS
+  # ============================================================================
   build-windows:
     needs: validate
     runs-on: windows-latest
@@ -65,32 +71,52 @@ jobs:
         run: |
           Remove-Item -Path "package-lock.json" -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "node_modules" -Recurse -Force -ErrorAction SilentlyContinue
-          npm install
+          npm ci
 
-      - name: Rebuild native modules
+      - name: Rebuild native modules for Electron
         run: |
           npm install --save-dev @electron/rebuild
           npx @electron/rebuild
           npm rebuild better-sqlite3 --force
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 1: Build Vite frontend → outputs to ./dist
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Vite frontend
         run: npm run build
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 2: Build Electron TypeScript → outputs to ./dist-electron/electron/
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Electron TypeScript
         run: |
+          # Clean previous electron builds ONLY (preserve dist from vite)
           Remove-Item -Path "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
+          
+          # Compile Electron main process using electron/tsconfig.json
+          Write-Host "🔧 Compiling electron/main.ts..." -ForegroundColor Cyan
           npx tsc -p electron/tsconfig.json
           
-          # Verify output
+          # CRITICAL VERIFICATION: Check exact file electron-builder needs
+          Write-Host "🔍 Verifying dist-electron/electron/main.js..." -ForegroundColor Cyan
           if (Test-Path "dist-electron/electron/main.js") {
             Write-Host "✅ SUCCESS: dist-electron/electron/main.js exists" -ForegroundColor Green
+            Get-Item "dist-electron/electron/main.js" | Select-Object FullName, Length, LastWriteTime
           } else {
-            Write-Host "❌ ERROR: Expected file not found!" -ForegroundColor Red
-            Write-Host "Files in dist-electron:" -ForegroundColor Yellow
-            Get-ChildItem -Path dist-electron -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+            Write-Host "❌ CRITICAL ERROR: dist-electron/electron/main.js NOT FOUND!" -ForegroundColor Red
+            Write-Host "`n📁 All files in dist-electron:" -ForegroundColor Yellow
+            Get-ChildItem -Path dist-electron -Recurse -ErrorAction SilentlyContinue | ForEach-Object { 
+              Write-Host "   $($_.FullName)" 
+            }
+            Write-Host "`n📋 package.json main field:" -ForegroundColor Yellow
+            $pkg = Get-Content package.json | ConvertFrom-Json
+            Write-Host "   main: $($pkg.main)"
             exit 1
           }
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 3: Build Electron app with electron-builder
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Electron app (Windows)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -107,6 +133,9 @@ jobs:
             release/win-*-unpacked
           retention-days: 30
 
+  # ============================================================================
+  # BUILD MACOS (x64 + arm64)
+  # ============================================================================
   build-macos:
     needs: validate
     runs-on: macos-latest
@@ -127,25 +156,45 @@ jobs:
       - name: Install dependencies
         run: |
           rm -f package-lock.json
-          npm install
+          npm ci
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 1: Build Vite frontend
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Vite frontend
         run: npm run build
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 2: Build Electron TypeScript
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Electron TypeScript
         run: |
+          # Clean previous electron builds ONLY
           rm -rf dist-electron
+          
+          # Compile Electron main process
+          echo "🔧 Compiling electron/main.ts..."
           npx tsc -p electron/tsconfig.json
           
+          # CRITICAL VERIFICATION
+          echo "🔍 Verifying dist-electron/electron/main.js..."
           if [ -f "dist-electron/electron/main.js" ]; then
             echo "✅ SUCCESS: dist-electron/electron/main.js exists"
+            ls -la dist-electron/electron/main.js
           else
-            echo "❌ ERROR: Expected file not found!"
-            echo "Files in dist-electron:"
-            find dist-electron -type f 2>/dev/null | sed 's/^/  /'
+            echo "❌ CRITICAL ERROR: dist-electron/electron/main.js NOT FOUND!"
+            echo ""
+            echo "📁 All files in dist-electron:"
+            find dist-electron -type f 2>/dev/null | sed 's/^/   /'
+            echo ""
+            echo "📋 package.json main field:"
+            node -p "require('./package.json').main"
             exit 1
           fi
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 3: Build Electron app
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build for macOS (${{ matrix.arch }})
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -161,6 +210,9 @@ jobs:
             release/*.app
           retention-days: 30
 
+  # ============================================================================
+  # BUILD LINUX
+  # ============================================================================
   build-linux:
     needs: validate
     runs-on: ubuntu-latest
@@ -183,25 +235,45 @@ jobs:
       - name: Install dependencies
         run: |
           rm -f package-lock.json
-          npm install
+          npm ci
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 1: Build Vite frontend
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Vite frontend
         run: npm run build
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 2: Build Electron TypeScript
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build Electron TypeScript
         run: |
+          # Clean previous electron builds ONLY
           rm -rf dist-electron
+          
+          # Compile Electron main process
+          echo "🔧 Compiling electron/main.ts..."
           npx tsc -p electron/tsconfig.json
           
+          # CRITICAL VERIFICATION
+          echo "🔍 Verifying dist-electron/electron/main.js..."
           if [ -f "dist-electron/electron/main.js" ]; then
             echo "✅ SUCCESS: dist-electron/electron/main.js exists"
+            ls -la dist-electron/electron/main.js
           else
-            echo "❌ ERROR: Expected file not found!"
-            echo "Files in dist-electron:"
-            find dist-electron -type f 2>/dev/null | sed 's/^/  /'
+            echo "❌ CRITICAL ERROR: dist-electron/electron/main.js NOT FOUND!"
+            echo ""
+            echo "📁 All files in dist-electron:"
+            find dist-electron -type f 2>/dev/null | sed 's/^/   /'
+            echo ""
+            echo "📋 package.json main field:"
+            node -p "require('./package.json').main"
             exit 1
           fi
 
+      # ────────────────────────────────────────────────────────────────────────
+      # STEP 3: Build Electron app
+      # ────────────────────────────────────────────────────────────────────────
       - name: Build for Linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -218,6 +290,9 @@ jobs:
             release/*.snap
           retention-days: 30
 
+  # ============================================================================
+  # CREATE GITHUB RELEASE (only on version tags)
+  # ============================================================================
   create-release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
@@ -248,6 +323,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ============================================================================
+  # SYNC TO PUBLIC REPO (on main branch push)
+  # ============================================================================
   sync-to-public:
     needs: validate
     runs-on: ubuntu-latest
@@ -263,7 +341,7 @@ jobs:
 
       - name: Verify Build Integrity
         run: |
-          npm install
+          npm ci
           npx tsc -p electron/tsconfig.json --noEmit
           npm run build
 
