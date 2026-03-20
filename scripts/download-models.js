@@ -1,4 +1,4 @@
-import { pipeline, env } from ('@xenova/transformers');
+import { pipeline, env } from '@xenova/transformers';
 const path = require('path');
 const fs = require('fs');
 
